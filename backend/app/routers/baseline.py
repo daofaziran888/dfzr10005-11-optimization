@@ -63,3 +63,12 @@ def export_entries() -> dict[str, Any]:
     """导出基线监控管理清单：返回当前过滤条件下的全量数据。"""
     items, total = service.list_entries(page=1, size=10000)
     return {"module": "baseline", "total": total, "items": items}
+
+
+@router.get("/{entry_id}/versions")
+def baseline_versions(entry_id: int) -> dict[str, Any]:
+    """历史基线视图：该基线关联路径的全部版本与承诺窗口对应关系。"""
+    versions = service.path_versions(entry_id)
+    if not versions:
+        raise HTTPException(status_code=404, detail=f"基线配置 {entry_id} 未关联可追溯路径")
+    return {"baseline_id": entry_id, "versions": versions}

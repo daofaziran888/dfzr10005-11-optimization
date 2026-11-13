@@ -14,6 +14,7 @@ const Retention = () => import('@/views/retention/index.vue')
 const Dedup = () => import('@/views/dedup/index.vue')
 const Tier = () => import('@/views/tier/index.vue')
 const Baseline = () => import('@/views/baseline/index.vue')
+const Paths = () => import('@/views/paths/index.vue')
 const Recycle = () => import('@/views/recycle/index.vue')
 const Audit = () => import('@/views/audit/index.vue')
 const Benchmark = () => import('@/views/benchmark/index.vue')
@@ -35,6 +36,7 @@ const router = createRouter({
     { path: '/dedup', name: 'dedup', component: Dedup },
     { path: '/tier', name: 'tier', component: Tier },
     { path: '/baseline', name: 'baseline', component: Baseline },
+    { path: '/paths', name: 'paths', component: Paths },
     { path: '/recycle', name: 'recycle', component: Recycle },
     { path: '/audit', name: 'audit', component: Audit },
     { path: '/benchmark', name: 'benchmark', component: Benchmark },

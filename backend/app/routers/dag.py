@@ -1,4 +1,8 @@
-"""任务依赖编排接口：维护依赖图节点，覆盖启动节点、暂停节点、归档节点等动作。"""
+"""任务依赖编排接口：维护依赖图节点，覆盖启动节点、暂停节点、归档节点等动作。
+
+动作与批次事件都会驱动共用路径引擎做增量重算，返回值里带上批次信息，
+便于前端展示受影响路径、复用路径与新摘要版本。
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -12,7 +16,7 @@ router = APIRouter(prefix="/api/dag", tags=["任务依赖编排"])
 
 service = DagService()
 
-LIST_FIELDS = ["节点编号", "节点名称", "上游节点", "下游节点", "执行条件", "超时分钟", "失败策略", "节点状态"]
+LIST_FIELDS = ["节点编号", "节点名称", "上游节点", "下游节点", "执行条件", "超时分钟", "失败策略", "节点状态", "最近产出"]
 STATUSES = ["草稿", "运行中", "已暂停", "已完成"]
 
 
@@ -48,11 +52,46 @@ def create_entry(payload: EntryPayload) -> ActionResult:
     return ActionResult(ok=True, message="依赖图节点已登记", entry=entry)
 
 
+@router.post("/events/batch")
+def submit_event_batch(payload: EntryPayload) -> dict[str, Any]:
+    """批量提交节点状态事件：同批次多节点以同一快照计算优先级与增量路径。
+
+    values 结构：
+      events: [{node, status, 超时分钟?, 上游节点?, 下游节点?, 最近产出?}]
+      idempotency_key?: 幂等键，相同键重复提交直接返回原批次
+      fail_injection?: {scope: path|node, target: 编号}，用于演示断点续算
+    """
+    values = payload.values
+    events = values.get("events")
+    if not isinstance(events, list) or not events:
+        raise HTTPException(status_code=400, detail="events 必须是非空数组")
+    try:
+        return service.submit_event_batch(
+            events,
+            idempotency_key=values.get("idempotency_key"),
+            fail_injection=values.get("fail_injection"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/batches/{batch_id}/resume")
+def resume_batch(batch_id: str) -> dict[str, Any]:
+    """失败批次从受影响路径的断点继续，已完成路径不重算。"""
+    try:
+        return service.resume_batch(batch_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/{entry_id}/actions", response_model=ActionResult)
 def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
-    """对单条依赖图节点执行启动节点、暂停节点、归档节点；不允许的动作会被拦下并说明原因。"""
+    """对单条依赖图节点执行动作；同幂等键重复动作不会重复缩短承诺时间。"""
     action = str(payload.values.get("action") or "").strip()
-    entry, message = service.run_action(entry_id, action)
+    idempotency_key = payload.values.get("idempotency_key")
+    entry, message, batch = service.run_action(
+        entry_id, action, idempotency_key=idempotency_key
+    )
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)

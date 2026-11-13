@@ -63,3 +63,15 @@ def export_entries() -> dict[str, Any]:
     """导出查询性能分析清单：返回当前过滤条件下的全量数据。"""
     items, total = service.list_entries(page=1, size=10000)
     return {"module": "benchmark", "total": total, "items": items}
+
+
+@router.get("/{benchmark_id}/path-reference")
+def path_reference(benchmark_id: str) -> dict[str, Any]:
+    """BENC 引用路径摘要的冻结副本：不重新解释节点状态。
+
+    例如 GET /api/benchmark/BENC-0002/path-reference。
+    """
+    try:
+        return service.path_reference(benchmark_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -36,7 +36,10 @@
       </thead>
       <tbody>
         <tr v-for="row in rows" :key="String(row.id)">
-          <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
+          <td v-for="column in columns" :key="column">
+            <span v-if="column === '风险等级'" :class="['risk-badge', riskClass(row[column])]">{{ row[column] ?? '—' }}</span>
+            <span v-else>{{ row[column] ?? '—' }}</span>
+          </td>
           <td class="row-actions">
             <button
               v-for="action in actions"
@@ -56,30 +59,41 @@
     </table>
 
     <footer class="page-foot">
-      <span>共 {{ total }} 条SLA告警管理记录</span>
+      <span>共 {{ total }} 条SLA告警记录 · 风险等级与基线结果共用同一份路径摘要</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import { request } from '@/api/client'
 
 type Row = Record<string, string | number | null>
 
 const ENDPOINT = '/api/sla'
-const columns = ["规则编号", "监控对象", "产出时间", "延迟阈值", "告警级别", "通知渠道", "升级策略", "规则状态"]
-const actions = ["启用监控", "处理告警", "关闭规则"]
-const statuses = ["草稿", "监控中", "已触发", "已关闭"]
-const stats = [{"label": "SLA规则总数", "value": 0}, {"label": "监控中规则", "value": 0}, {"label": "已触发规则", "value": 0}]
+const columns = ['规则编号', '监控对象', 'path_version', 'watermark', '产出时间', '承诺时间', '预警时间', '延迟阈值分钟', '风险等级', '告警级别', '承诺窗口对应版本']
+const actions = ['启用监控', '处理告警', '关闭规则']
 
 const rows = ref<Row[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
-const filterFields = columns.slice(0, 3)
+const filterFields = ['规则编号', '监控对象']
+
+const stats = computed(() => [
+  { label: 'SLA规则总数', value: rows.value.length },
+  { label: '监控中规则', value: rows.value.filter((row) => row.status === '监控中').length },
+  { label: '高风险规则', value: rows.value.filter((row) => row['风险等级'] === '高风险').length },
+])
+
+function riskClass(level: unknown): string {
+  if (level === '高风险') return 'risk-high'
+  if (level === '中风险') return 'risk-mid'
+  if (level === '已完成') return 'risk-done'
+  return 'risk-low'
+}
 
 function resetFilters() {
   filters.value = {}
@@ -128,3 +142,11 @@ async function reload() {
 
 onMounted(reload)
 </script>
+
+<style scoped>
+.risk-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+.risk-high { background: #fee4e2; color: #b42318; }
+.risk-mid { background: #fef0c7; color: #b54708; }
+.risk-low { background: #dcfae6; color: #067647; }
+.risk-done { background: #e0eaff; color: #1849a9; }
+</style>

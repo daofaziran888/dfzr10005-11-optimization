@@ -1,8 +1,14 @@
-"""SLA告警管理业务规则：状态流转、字段校验与筛选口径都收在这里。"""
+"""SLA告警管理业务规则。
+
+SLA 台账与基线监控共用同一个路径引擎、同一份路径摘要：风险等级、承诺时间、
+预警时间不允许两套口径各自计算。DAG 状态变化触发增量重算后，本页无需人工刷新
+规则本身即可读到与基线完全一致的新风险等级。
+"""
 from __future__ import annotations
 
 from typing import Any
 
+from app.services.path_engine import path_engine
 from app.store import store
 
 MODULE = "sla"
@@ -13,6 +19,9 @@ NEGATIVE_ACTIONS = []
 
 
 class SlaService:
+    def _enriched_rows(self) -> list[dict[str, Any]]:
+        return path_engine.sla_view()
+
     def list_entries(
         self,
         *,
@@ -21,7 +30,7 @@ class SlaService:
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[dict[str, Any]], int]:
-        rows = store.rows(MODULE)
+        rows = self._enriched_rows()
         if keyword:
             rows = [row for row in rows if keyword in str(row.get("规则编号", ""))]
         if status:
@@ -31,7 +40,10 @@ class SlaService:
         return rows[start:start + size], total
 
     def get_entry(self, entry_id: int) -> dict[str, Any] | None:
-        return store.find(MODULE, entry_id)
+        for row in self._enriched_rows():
+            if int(row.get("id", 0)) == entry_id:
+                return row
+        return None
 
     def create_entry(self, values: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
         missing = [field for field in REQUIRED_FIELDS if not str(values.get(field) or "").strip()]
@@ -43,6 +55,8 @@ class SlaService:
         entry["status"] = STATUS_ORDER[0]
         entry["pending"] = True
         entry["abnormal"] = False
+        if values.get("path_id"):
+            entry["path_id"] = values["path_id"]
         rows.append(entry)
         return entry, []
 

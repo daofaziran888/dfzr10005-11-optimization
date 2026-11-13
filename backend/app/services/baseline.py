@@ -1,8 +1,14 @@
-"""基线监控管理业务规则：状态流转、字段校验与筛选口径都收在这里。"""
+"""基线监控管理业务规则。
+
+基线清单不再直接读静态占位文本，而是通过共用路径引擎取数：关键路径、承诺时间、
+预警时间、最近产出与风险等级全部来自路径摘要快照。刷新、重新进入或返回列表时
+引擎返回的是同一份不可变快照，保证 SLA 风险与基线结果同步一致。
+"""
 from __future__ import annotations
 
 from typing import Any
 
+from app.services.path_engine import path_engine
 from app.store import store
 
 MODULE = "baseline"
@@ -13,6 +19,10 @@ NEGATIVE_ACTIONS = []
 
 
 class BaselineService:
+    def _enriched_rows(self) -> list[dict[str, Any]]:
+        # 与 SLA 共用 path_engine 的同一份计算结果，不各自解释节点状态
+        return path_engine.baseline_view()
+
     def list_entries(
         self,
         *,
@@ -21,7 +31,7 @@ class BaselineService:
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[dict[str, Any]], int]:
-        rows = store.rows(MODULE)
+        rows = self._enriched_rows()
         if keyword:
             rows = [row for row in rows if keyword in str(row.get("基线编号", ""))]
         if status:
@@ -31,7 +41,10 @@ class BaselineService:
         return rows[start:start + size], total
 
     def get_entry(self, entry_id: int) -> dict[str, Any] | None:
-        return store.find(MODULE, entry_id)
+        for row in self._enriched_rows():
+            if int(row.get("id", 0)) == entry_id:
+                return row
+        return None
 
     def create_entry(self, values: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
         missing = [field for field in REQUIRED_FIELDS if not str(values.get(field) or "").strip()]
@@ -43,6 +56,10 @@ class BaselineService:
         entry["status"] = STATUS_ORDER[0]
         entry["pending"] = True
         entry["abnormal"] = False
+        path_id = values.get("path_id")
+        if path_id:
+            entry["path_id"] = path_id
+            entry["关键路径"] = path_id
         rows.append(entry)
         return entry, []
 
@@ -59,3 +76,10 @@ class BaselineService:
         entry["pending"] = target != STATUS_ORDER[-1]
         entry["abnormal"] = action in NEGATIVE_ACTIONS
         return entry, f"基线配置已{action}"
+
+    def path_versions(self, entry_id: int) -> list[dict[str, Any]]:
+        """历史基线视图：返回该基线关联路径的全部版本（路径版本↔承诺窗口对应关系）。"""
+        entry = store.find(MODULE, entry_id)
+        if entry is None or not entry.get("path_id"):
+            return []
+        return path_engine.path_versions(str(entry["path_id"]))
